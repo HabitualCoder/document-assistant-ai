@@ -158,7 +158,7 @@ export class DatabaseService {
   }
 
   /**
-   * Find similar chunks using vector similarity (simplified implementation)
+   * Find similar chunks using vector similarity
    */
   async findSimilarChunks(
     queryEmbedding: number[],
@@ -166,9 +166,10 @@ export class DatabaseService {
     limit: number = 5
   ): Promise<DocumentChunk[]> {
     try {
-      // For now, we'll return chunks from specified documents
-      // In production, you'd use a proper vector database like Pinecone
-      const whereClause: any = {};
+      // Get all chunks with embeddings
+      const whereClause: any = {
+        embedding: { not: null }
+      };
       
       if (documentIds && documentIds.length > 0) {
         whereClause.documentId = { in: documentIds };
@@ -176,18 +177,54 @@ export class DatabaseService {
 
       const chunks = await prisma.documentChunk.findMany({
         where: whereClause,
-        take: limit,
         include: {
           document: true,
         },
         orderBy: { createdAt: 'desc' },
       });
 
-      return chunks.map(chunk => this.mapPrismaChunkToChunk(chunk));
+      // Calculate similarity scores
+      const chunksWithSimilarity = chunks.map(chunk => {
+        const chunkEmbedding = chunk.embedding ? JSON.parse(chunk.embedding) : [];
+        const similarity = this.calculateCosineSimilarity(queryEmbedding, chunkEmbedding);
+        
+        return {
+          ...this.mapPrismaChunkToChunk(chunk),
+          similarity,
+        };
+      });
+
+      // Sort by similarity and return top results
+      return chunksWithSimilarity
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, limit)
+        .map(({ similarity, ...chunk }) => chunk);
+        
     } catch (error) {
       console.error('Error finding similar chunks:', error);
       throw error;
     }
+  }
+
+  /**
+   * Calculate cosine similarity between two vectors
+   */
+  private calculateCosineSimilarity(vectorA: number[], vectorB: number[]): number {
+    if (vectorA.length !== vectorB.length) return 0;
+    
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    
+    for (let i = 0; i < vectorA.length; i++) {
+      dotProduct += vectorA[i] * vectorB[i];
+      normA += vectorA[i] * vectorA[i];
+      normB += vectorB[i] * vectorB[i];
+    }
+    
+    if (normA === 0 || normB === 0) return 0;
+    
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
   }
 
   /**

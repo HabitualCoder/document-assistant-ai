@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ApiResponse, QueryRequest, QueryResponse, ValidationError } from '@/lib/types';
 import { aiService } from '@/lib/ai-services';
+import { db } from '@/lib/database';
 import { validateQuery } from '@/lib/utils';
 
 export async function POST(request: NextRequest): Promise<NextResponse<ApiResponse<QueryResponse>>> {
@@ -52,6 +53,20 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
 
     // Process query using AI service
     const queryResponse = await aiService.processQuery(queryRequest);
+
+    // Store query and sources in database
+    await db.createQuery({
+      id: queryResponse.queryId,
+      question: queryRequest.question,
+      answer: queryResponse.answer,
+      confidence: queryResponse.confidence,
+      processingTime: queryResponse.processingTime,
+      documentIds: queryRequest.documentIds,
+    });
+
+    if (queryResponse.sources && queryResponse.sources.length > 0) {
+      await db.createQuerySources(queryResponse.queryId, queryResponse.sources);
+    }
 
     const response: ApiResponse<QueryResponse> = {
       success: true,

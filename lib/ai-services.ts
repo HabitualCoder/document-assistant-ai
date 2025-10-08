@@ -62,7 +62,13 @@ export class AIService {
         );
       }
 
-      const chunks = await this.createDocumentChunks(document);
+      // Import chunking service dynamically
+      const { chunkingService } = await import('./chunking');
+      
+      // Create document chunks
+      const chunks = await chunkingService.chunkDocument(document);
+      
+      // Generate embeddings for each chunk
       const chunksWithEmbeddings = await this.generateEmbeddings(chunks);
       
       return chunksWithEmbeddings;
@@ -76,61 +82,6 @@ export class AIService {
         document.id
       );
     }
-  }
-
-  /**
-   * Creates document chunks from content
-   */
-  private async createDocumentChunks(document: Document): Promise<DocumentChunk[]> {
-    const content = document.content!;
-    const chunks: DocumentChunk[] = [];
-    
-    let startIndex = 0;
-    let chunkIndex = 0;
-
-    while (startIndex < content.length) {
-      const endIndex = Math.min(
-        startIndex + AI_CONFIG.chunkSize,
-        content.length
-      );
-
-      // Try to break at sentence boundaries
-      let actualEndIndex = endIndex;
-      if (endIndex < content.length) {
-        const lastSentenceEnd = content.lastIndexOf('.', endIndex);
-        const lastNewline = content.lastIndexOf('\n', endIndex);
-        const breakPoint = Math.max(lastSentenceEnd, lastNewline);
-        
-        if (breakPoint > startIndex + AI_CONFIG.chunkSize * 0.5) {
-          actualEndIndex = breakPoint + 1;
-        }
-      }
-
-      const chunkContent = content.substring(startIndex, actualEndIndex).trim();
-      
-      if (chunkContent.length > 0) {
-        const chunk: DocumentChunk = {
-          id: `${document.id}_chunk_${chunkIndex}`,
-          documentId: document.id,
-          content: chunkContent,
-          startIndex,
-          endIndex: actualEndIndex,
-          metadata: {
-            section: this.extractSection(chunkContent),
-            heading: this.extractHeading(chunkContent),
-            importance: this.calculateImportance(chunkContent),
-            keywords: this.extractKeywords(chunkContent),
-          },
-        };
-
-        chunks.push(chunk);
-        chunkIndex++;
-      }
-
-      startIndex = actualEndIndex - AI_CONFIG.chunkOverlap;
-    }
-
-    return chunks;
   }
 
   /**
@@ -186,7 +137,7 @@ export class AIService {
       // Create sources from relevant chunks
       const sources: QuerySource[] = relevantChunks.map(chunk => ({
         documentId: chunk.documentId,
-        documentName: '', // Would be populated from document metadata
+        documentName: '', // Will be populated from chunk metadata
         chunkId: chunk.id,
         content: chunk.content,
         relevanceScore: this.calculateRelevanceScore(request.question, chunk.content),
@@ -219,11 +170,22 @@ export class AIService {
     documentIds?: string[],
     maxResults: number = AI_CONFIG.maxResults
   ): Promise<DocumentChunk[]> {
-    // This is a simplified implementation
-    // In production, you would query a vector database like Pinecone, Weaviate, or Chroma
-    
-    // For now, return empty array - this would be implemented with actual vector search
-    return [];
+    try {
+      // Import database service dynamically
+      const { db } = await import('./database');
+      
+      // Find similar chunks using vector similarity
+      const relevantChunks = await db.findSimilarChunks(
+        queryEmbedding,
+        documentIds,
+        maxResults
+      );
+      
+      return relevantChunks;
+    } catch (error) {
+      console.error('Error finding relevant chunks:', error);
+      return [];
+    }
   }
 
   /**

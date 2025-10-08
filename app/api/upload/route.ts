@@ -136,22 +136,18 @@ async function extractFileContent(arrayBuffer: ArrayBuffer, type: string): Promi
     
     case 'pdf':
       try {
-        // In production, you would use pdf-parse here
-        // const pdfParse = require('pdf-parse');
-        // const data = await pdfParse(arrayBuffer);
-        // return data.text;
-        return 'PDF content extraction - demo mode. In production, this would extract actual PDF text.';
+        const pdfParse = require('pdf-parse');
+        const data = await pdfParse(Buffer.from(arrayBuffer));
+        return data.text;
       } catch (error) {
         throw new ValidationError(`Failed to extract PDF content: ${error instanceof Error ? error.message : 'Unknown error'}`, 'content');
       }
     
     case 'docx':
       try {
-        // In production, you would use mammoth here
-        // const mammoth = require('mammoth');
-        // const result = await mammoth.extractRawText({ buffer: arrayBuffer });
-        // return result.value;
-        return 'DOCX content extraction - demo mode. In production, this would extract actual DOCX text.';
+        const mammoth = require('mammoth');
+        const result = await mammoth.extractRawText({ buffer: Buffer.from(arrayBuffer) });
+        return result.value;
       } catch (error) {
         throw new ValidationError(`Failed to extract DOCX content: ${error instanceof Error ? error.message : 'Unknown error'}`, 'content');
       }
