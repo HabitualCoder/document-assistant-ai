@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { HealthCheckResponse, ServiceHealth } from '@/lib/types';
 import { aiService } from '@/lib/ai-services';
+import { db } from '@/lib/database';
 
 export async function GET(request: NextRequest): Promise<NextResponse<HealthCheckResponse>> {
   try {
@@ -13,6 +14,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<HealthChec
     
     // Check AI service health
     const aiHealth = await aiService.healthCheck();
+    
+    // Check database health
+    const dbHealth = await db.healthCheck();
     
     const services: ServiceHealth[] = [
       {
@@ -24,8 +28,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<HealthChec
       },
       {
         name: 'Database',
-        status: 'up', // Would check actual database connection
-        responseTime: 5,
+        status: dbHealth.status === 'healthy' ? 'up' : 'down',
+        responseTime: dbHealth.responseTime,
         lastCheck: new Date(),
       },
       {

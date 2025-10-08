@@ -5,7 +5,7 @@
  * Main interface for the application
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Document, QueryResponse, UIState } from '@/lib/types';
 import FileUpload from '@/components/FileUpload';
 import DocumentList from '@/components/DocumentList';
@@ -23,8 +23,26 @@ export default function DocumentAssistantClient(): JSX.Element {
   const [uiState, setUIState] = useState<UIState>({ isLoading: false });
   const [activeTab, setActiveTab] = useState<'upload' | 'query' | 'documents'>('upload');
 
-  // Refs for scroll behavior
-  const resultsRef = useRef<HTMLDivElement>(null);
+  // Load documents on component mount
+  useEffect(() => {
+    loadDocuments();
+  }, []);
+
+  // Load documents from API
+  const loadDocuments = useCallback(async (): Promise<void> => {
+    try {
+      const response = await fetch('/api/documents');
+      const result = await response.json();
+      
+      if (result.success) {
+        setDocuments(result.data);
+      } else {
+        console.error('Failed to load documents:', result.error);
+      }
+    } catch (error) {
+      console.error('Error loading documents:', error);
+    }
+  }, []);
 
   // File upload handler
   const handleFileUpload = useCallback(async (file: File): Promise<void> => {
@@ -42,25 +60,13 @@ export default function DocumentAssistantClient(): JSX.Element {
       const result = await response.json();
 
       if (result.success) {
-        // Add document to list
-        const newDocument: Document = {
-          id: result.data.documentId,
-          name: file.name,
-          type: file.name.split('.').pop()?.toLowerCase() as any,
-          size: file.size,
-          uploadDate: new Date(),
-          status: 'processing',
-          metadata: {
-            title: file.name.replace(/\.[^/.]+$/, ''),
-            createdAt: new Date(file.lastModified),
-          },
-        };
-
-        setDocuments(prev => [...prev, newDocument]);
         setUIState({ 
           isLoading: false, 
           success: 'File uploaded successfully! Processing...' 
         });
+        
+        // Reload documents to show the new one
+        await loadDocuments();
         
         // Switch to documents tab to show progress
         setActiveTab('documents');

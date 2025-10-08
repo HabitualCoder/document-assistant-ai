@@ -13,6 +13,7 @@ import {
   getDocumentTypeFromFile,
   sanitizeFilename 
 } from '@/lib/utils';
+import { db } from '@/lib/database';
 
 // Configuration
 const UPLOAD_CONFIG = {
@@ -21,7 +22,7 @@ const UPLOAD_CONFIG = {
   uploadPath: './uploads',
 } as const;
 
-export async function POST(request: NextRequest): Promise<NextResponse<ApiResponse<UploadResponse>>> {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const formData = await request.formData();
     const file = formData.get('file') as File;
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
     }
 
     // Validate file type
-    if (!validateFileType(file, UPLOAD_CONFIG.allowedTypes)) {
+    if (!validateFileType(file, [...UPLOAD_CONFIG.allowedTypes])) {
       const errorResponse: ApiResponse = {
         success: false,
         error: {
@@ -77,28 +78,23 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
     const arrayBuffer = await file.arrayBuffer();
     const content = await extractFileContent(arrayBuffer, documentType!);
 
-    // Create document object
-    const document = {
+    // Create document in database
+    await db.createDocument({
       id: documentId,
       name: sanitizedName,
       type: documentType!,
       size: file.size,
-      uploadDate: new Date(),
-      status: 'uploading' as const,
       content,
       metadata,
-    };
-
-    // Store document (in production, this would save to database)
-    await storeDocument(document);
+    });
 
     // Update status to processing
-    await updateDocumentStatus(documentId, 'processing');
+    await db.updateDocumentStatus(documentId, 'processing');
 
     // Process document asynchronously
     processDocumentAsync(documentId).catch(error => {
       console.error('Document processing failed:', error);
-      updateDocumentStatus(documentId, 'error');
+      db.updateDocumentStatus(documentId, 'error');
     });
 
     const response: ApiResponse<UploadResponse> = {
@@ -165,29 +161,33 @@ async function extractFileContent(arrayBuffer: ArrayBuffer, type: string): Promi
   }
 }
 
-/**
- * Stores document in database (simplified implementation)
- */
-async function storeDocument(document: any): Promise<void> {
-  // In production, this would save to a database
-  console.log('Storing document:', document.id);
-}
-
-/**
- * Updates document status
- */
-async function updateDocumentStatus(documentId: string, status: string): Promise<void> {
-  // In production, this would update the database
-  console.log(`Updating document ${documentId} status to ${status}`);
-}
 
 /**
  * Processes document asynchronously
  */
 async function processDocumentAsync(documentId: string): Promise<void> {
-  // Simulate processing time
-  await new Promise(resolve => setTimeout(resolve, 2000));
-  
-  // Update status to processed
-  await updateDocumentStatus(documentId, 'processed');
+  try {
+    // Get document from database
+    const document = await db.getDocument(documentId);
+    if (!document) {
+      throw new Error('Document not found');
+    }
+
+    // Import AI service dynamically to avoid circular dependencies
+    const { aiService } = await import('@/lib/ai-services');
+    
+    // Process document with AI service (chunking + embeddings)
+    const chunks = await aiService.processDocument(document);
+    
+    // Store chunks in database
+    await db.createDocumentChunks(documentId, chunks);
+    
+    // Update status to processed
+    await db.updateDocumentStatus(documentId, 'processed');
+    
+    console.log(`Document ${documentId} processed successfully with ${chunks.length} chunks`);
+  } catch (error) {
+    console.error(`Document processing failed for ${documentId}:`, error);
+    await db.updateDocumentStatus(documentId, 'error');
+  }
 }
