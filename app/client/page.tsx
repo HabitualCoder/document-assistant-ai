@@ -202,12 +202,12 @@ export default function DocumentAssistantClient(): JSX.Element {
           />
         )}
 
-        {/* Loading Overlay */}
+        {/* Loading Overlay - Sectional */}
         {uiState.isLoading && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 flex items-center space-x-4">
-              <LoadingSpinner size="md" />
-              <span className="text-gray-700">
+          <div className="absolute inset-0 bg-white bg-opacity-90 flex items-center justify-center z-10 rounded-lg">
+            <div className="bg-white rounded-lg p-4 flex items-center space-x-3 shadow-lg border">
+              <LoadingSpinner size="sm" />
+              <span className="text-gray-700 text-sm font-medium">
                 {activeTab === 'upload' ? 'Uploading...' : 'Processing...'}
               </span>
             </div>
@@ -215,7 +215,7 @@ export default function DocumentAssistantClient(): JSX.Element {
         )}
 
         {/* Tab Content */}
-        <div className="space-y-8">
+        <div className="space-y-8 relative">
           {activeTab === 'upload' && (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <h2 className="text-xl font-semibold text-gray-900 mb-6">

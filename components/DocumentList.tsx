@@ -122,38 +122,38 @@ export default function DocumentList({
               }`}
               onClick={() => handleDocumentClick(document.id)}
             >
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center space-x-3">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${getDocumentTypeColor(document.type)}`}>
-                    <span className="text-sm">{getDocumentTypeIcon(document.type)}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-medium text-gray-900 truncate">
-                      {document.name}
-                    </h3>
-                    <p className="text-xs text-gray-500">
-                      {formatFileSize(document.size)}
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="flex items-center space-x-2">
-                  <div className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(document.status)}`}>
-                    <span className="mr-1">{getStatusIcon(document.status)}</span>
-                    {document.status}
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center space-x-3 flex-1 min-w-0">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${getDocumentTypeColor(document.type)} flex-shrink-0`}>
+                      <span className="text-sm">{getDocumentTypeIcon(document.type)}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-sm font-medium text-gray-900 truncate">
+                        {document.name}
+                      </h3>
+                      <p className="text-xs text-gray-500">
+                        {formatFileSize(document.size)}
+                      </p>
+                    </div>
                   </div>
                   
-                  <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
-                    isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-300'
-                  }`}>
-                    {isSelected && (
-                      <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                      </svg>
-                    )}
+                  <div className="flex items-center space-x-2 flex-shrink-0 ml-2">
+                    <div className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(document.status)}`}>
+                      <span className="mr-1">{getStatusIcon(document.status)}</span>
+                      {document.status}
+                    </div>
+                    
+                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                      isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-300'
+                    }`}>
+                      {isSelected && (
+                        <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs text-gray-500">
