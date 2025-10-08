@@ -1,0 +1,92 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Document model for storing uploaded documents
+model Document {
+  id            String   @id @default(cuid())
+  name          String
+  type          String   // pdf, txt, docx, md
+  size          Int      // file size in bytes
+  uploadDate    DateTime @default(now())
+  processedDate DateTime?
+  status        String   @default("uploading") // uploading, processing, processed, error
+  content       String?  // extracted text content
+  metadata      String?  // JSON string of metadata
+  
+  // Relations
+  chunks        DocumentChunk[]
+  queries       Query[]
+  
+  @@map("documents")
+}
+
+// Document chunks for RAG (Retrieval-Augmented Generation)
+model DocumentChunk {
+  id          String   @id @default(cuid())
+  documentId  String
+  content     String   // chunk content
+  pageNumber  Int?     // page number if applicable
+  startIndex  Int      // start position in original document
+  endIndex    Int      // end position in original document
+  embedding   String?  // JSON string of embedding vector
+  metadata    String?  // JSON string of chunk metadata
+  createdAt   DateTime @default(now())
+  
+  // Relations
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  querySources QuerySource[]
+  
+  @@map("document_chunks")
+}
+
+// Query model for storing user queries
+model Query {
+  id            String   @id @default(cuid())
+  question      String
+  answer        String?
+  confidence    Float?   // confidence score 0-1
+  processingTime Int?    // processing time in ms
+  documentIds   String?  // JSON array of document IDs used
+  createdAt     DateTime @default(now())
+  
+  // Relations
+  document      Document? @relation(fields: [documentId], references: [id])
+  documentId    String?
+  sources       QuerySource[]
+  
+  @@map("queries")
+}
+
+// Query sources for tracking which chunks were used
+model QuerySource {
+  id              String   @id @default(cuid())
+  queryId         String
+  chunkId         String
+  relevanceScore  Float    // relevance score 0-1
+  createdAt       DateTime @default(now())
+  
+  // Relations
+  query           Query          @relation(fields: [queryId], references: [id], onDelete: Cascade)
+  chunk           DocumentChunk  @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+  
+  @@map("query_sources")
+}
+
+// User sessions for tracking usage (optional)
+model UserSession {
+  id        String   @id @default(cuid())
+  sessionId String   @unique
+  createdAt DateTime @default(now())
+  lastActive DateTime @default(now())
+  
+  @@map("user_sessions")
+}
