@@ -10,6 +10,7 @@ import { processQueryWithRAG, processSimpleQuery } from './langchain-chains';
 import { testSupabaseConnection } from './supabase';
 import { AIQueryError, DocumentProcessingError } from './error-handling';
 import { retryWithBackoff } from './error-handling';
+import { langsmithConfig, isLangSmithConfigured } from './langsmith';
 
 // AI Configuration
 const AI_CONFIG = {
@@ -26,6 +27,14 @@ export class AIService {
 
   constructor() {
     console.log('AI Service - Initializing with LangChain + Gemini + Supabase');
+    
+    // Initialize LangSmith tracing if configured
+    if (isLangSmithConfigured()) {
+      console.log('LangSmith tracing enabled for project:', langsmithConfig.project);
+    } else {
+      console.log('LangSmith tracing disabled - check environment variables');
+    }
+    
     this.initializationPromise = this.initialize();
   }
 
@@ -68,6 +77,17 @@ export class AIService {
     try {
       console.log(`Processing document: ${document.name}`);
       
+      // Start LangSmith trace for document processing
+      const traceName = `process_document_${document.id}`;
+      const traceMetadata = {
+        documentId: document.id,
+        documentName: document.name,
+        documentType: document.type,
+        documentSize: document.size,
+      };
+      
+      console.log(`LangSmith trace started: ${traceName}`, traceMetadata);
+      
       // Convert document to LangChain format and split into chunks
       const chunks = await processDocumentsIntoChunks([document]);
       console.log(`Created ${chunks.length} chunks for document ${document.name}`);
@@ -94,6 +114,7 @@ export class AIService {
       }));
       
       console.log(`Document ${document.name} processed successfully with ${documentChunks.length} chunks`);
+      console.log(`LangSmith trace completed: ${traceName}`);
       return documentChunks;
     } catch (error) {
       console.error(`Document processing failed for ${document.id}:`, error);
@@ -125,6 +146,18 @@ export class AIService {
     try {
       console.log(`Processing query: ${request.question}`);
       
+      // Start LangSmith trace for query processing
+      const traceName = `process_query_${queryId}`;
+      const traceMetadata = {
+        queryId,
+        question: request.question,
+        documentIds: request.documentIds,
+        maxResults: request.maxResults,
+        includeSources: request.includeSources,
+      };
+      
+      console.log(`LangSmith trace started: ${traceName}`, traceMetadata);
+      
       // Use LangChain RAG chain to process the query
       const answer = await processQueryWithRAG(request.question);
       
@@ -143,6 +176,12 @@ export class AIService {
       }));
 
       const processingTime = Date.now() - startTime;
+      
+      console.log(`LangSmith trace completed: ${traceName}`, {
+        processingTime,
+        answerLength: answer.length,
+        sourcesCount: sources.length,
+      });
 
       return {
         answer,

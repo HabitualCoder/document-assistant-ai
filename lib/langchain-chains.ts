@@ -7,13 +7,21 @@ import { PromptTemplate } from '@langchain/core/prompts';
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import { RunnablePassthrough, RunnableSequence } from '@langchain/core/runnables';
 import { retriever, combineDocuments } from './vector-store';
+import { langsmithConfig, isLangSmithConfigured } from './langsmith';
 
-// Initialize Gemini chat model
+// Initialize Gemini chat model with LangSmith tracing
 const llm = new ChatGoogleGenerativeAI({
   model: 'gemini-2.0-flash-exp',
   apiKey: process.env.GOOGLE_API_KEY,
   temperature: 0.1,
   maxTokens: 2048,
+  // LangSmith configuration
+  ...(isLangSmithConfigured() && {
+    callbacks: [{
+      name: 'langsmith',
+      projectName: langsmithConfig.project,
+    }],
+  }),
 });
 
 // Standalone question template (from your course code)
