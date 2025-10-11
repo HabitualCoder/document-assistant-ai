@@ -1,78 +1,103 @@
 /**
  * AI Services for the Intelligent Document Assistant
- * Handles all AI-related functionality using LangChain.js and Google Gemini
+ * Handles all AI-related functionality using LangChain.js and Google Gemini with Supabase Vector Store
  */
 
-import { GoogleGenerativeAI } from '@langchain/google-genai';
-import { Document as LangChainDocument } from '@langchain/core/documents';
-import { 
-  Document, 
-  DocumentChunk, 
-  QueryRequest, 
-  QueryResponse, 
-  QuerySource,
-  AIQueryError,
-  DocumentProcessingError 
-} from './types';
-import { retryWithBackoff, calculateSimilarity } from './utils';
+import { Document as AppDocument, DocumentChunk, QueryRequest, QueryResponse, QuerySource } from './types';
+import { addDocumentsToVectorStore, searchSimilarDocuments } from './vector-store';
+import { processDocumentsIntoChunks } from './document-loaders';
+import { processQueryWithRAG, processSimpleQuery } from './langchain-chains';
+import { testSupabaseConnection } from './supabase';
+import { AIQueryError, DocumentProcessingError } from './error-handling';
+import { retryWithBackoff } from './error-handling';
 
-// Configuration
+// AI Configuration
 const AI_CONFIG = {
   maxRetries: 3,
-  timeout: 30000,
-  chunkSize: 1000,
-  chunkOverlap: 200,
+  retryDelay: 1000,
   maxResults: 5,
   temperature: 0.1,
   maxTokens: 2048,
 } as const;
 
 export class AIService {
-  private model: GoogleGenerativeAI;
-  private embeddingModel: GoogleGenerativeAI;
+  private isInitialized: boolean = false;
+  private initializationPromise: Promise<void>;
 
   constructor() {
-    const apiKey = process.env.GOOGLE_API_KEY;
-    if (!apiKey) {
-      throw new Error('GOOGLE_API_KEY environment variable is required');
+    console.log('AI Service - Initializing with LangChain + Gemini + Supabase');
+    this.initializationPromise = this.initialize();
+  }
+
+  private async initialize(): Promise<void> {
+    try {
+      console.log('Testing Supabase connection...');
+      const isConnected = await testSupabaseConnection();
+      
+      if (!isConnected) {
+        throw new Error('Failed to connect to Supabase');
+      }
+      
+      // Test Google API key
+      if (!process.env.GOOGLE_API_KEY) {
+        throw new Error('GOOGLE_API_KEY environment variable is missing');
+      }
+      
+      this.isInitialized = true;
+      console.log('AI Service initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize AI service:', error);
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      throw new Error(`Failed to initialize AI service: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-
-    this.model = new GoogleGenerativeAI({
-      modelName: 'gemini-1.5-flash',
-      apiKey,
-      temperature: AI_CONFIG.temperature,
-      maxTokens: AI_CONFIG.maxTokens,
-    });
-
-    this.embeddingModel = new GoogleGenerativeAI({
-      modelName: 'text-embedding-004',
-      apiKey,
-    });
   }
 
   /**
    * Processes a document and creates chunks for retrieval
    */
-  async processDocument(document: Document): Promise<DocumentChunk[]> {
-    try {
-      if (!document.content) {
-        throw new DocumentProcessingError(
-          'Document content is required for processing',
-          document.id
-        );
-      }
+  async processDocument(document: AppDocument): Promise<DocumentChunk[]> {
+    await this.initializationPromise;
+    
+    if (!this.isInitialized) {
+      throw new DocumentProcessingError('AI service not initialized', document.id);
+    }
 
-      // Import chunking service dynamically
-      const { chunkingService } = await import('./chunking');
+    try {
+      console.log(`Processing document: ${document.name}`);
       
-      // Create document chunks
-      const chunks = await chunkingService.chunkDocument(document);
+      // Convert document to LangChain format and split into chunks
+      const chunks = await processDocumentsIntoChunks([document]);
+      console.log(`Created ${chunks.length} chunks for document ${document.name}`);
       
-      // Generate embeddings for each chunk
-      const chunksWithEmbeddings = await this.generateEmbeddings(chunks);
+      // Add chunks to Supabase vector store
+      await addDocumentsToVectorStore(chunks);
+      console.log(`Added ${chunks.length} chunks to vector store`);
       
-      return chunksWithEmbeddings;
+      // Convert LangChain documents back to our format
+      const documentChunks: DocumentChunk[] = chunks.map((chunk, index) => ({
+        id: `chunk_${document.id}_${index}`,
+        documentId: document.id,
+        content: chunk.pageContent,
+        pageNumber: 1, // We'll extract this from metadata if available
+        startIndex: 0, // We'll calculate this if needed
+        endIndex: chunk.pageContent.length,
+        embedding: [], // Embeddings are stored in Supabase
+        metadata: {
+          section: chunk.metadata.section || 'General',
+          heading: chunk.metadata.heading || '',
+          importance: 0.5, // Default importance
+          keywords: [], // We'll extract keywords later
+        },
+      }));
+      
+      console.log(`Document ${document.name} processed successfully with ${documentChunks.length} chunks`);
+      return documentChunks;
     } catch (error) {
+      console.error(`Document processing failed for ${document.id}:`, error);
+      
       if (error instanceof DocumentProcessingError) {
         throw error;
       }
@@ -85,272 +110,132 @@ export class AIService {
   }
 
   /**
-   * Generates embeddings for document chunks
-   */
-  private async generateEmbeddings(chunks: DocumentChunk[]): Promise<DocumentChunk[]> {
-    try {
-      const embeddings = await Promise.all(
-        chunks.map(chunk => 
-          retryWithBackoff(async () => {
-            const response = await this.embeddingModel.embedQuery(chunk.content);
-            return response;
-          }, AI_CONFIG.maxRetries)
-        )
-      );
-
-      return chunks.map((chunk, index) => ({
-        ...chunk,
-        embedding: embeddings[index],
-      }));
-    } catch (error) {
-      throw new DocumentProcessingError(
-        `Failed to generate embeddings: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        chunks[0]?.documentId || 'unknown'
-      );
-    }
-  }
-
-  /**
    * Processes a user query and returns AI-generated response
    */
   async processQuery(request: QueryRequest): Promise<QueryResponse> {
+    await this.initializationPromise;
+    
+    if (!this.isInitialized) {
+      throw new AIQueryError('AI service not initialized', 'INIT_ERROR');
+    }
+
     const queryId = `query_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const startTime = Date.now();
 
     try {
-      // Generate query embedding for similarity search
-      const queryEmbedding = await retryWithBackoff(async () => {
-        const response = await this.embeddingModel.embedQuery(request.question);
-        return response;
-      }, AI_CONFIG.maxRetries);
-
-      // Find relevant chunks (this would typically query a vector database)
-      const relevantChunks = await this.findRelevantChunks(
-        queryEmbedding,
-        request.documentIds,
-        request.maxResults || AI_CONFIG.maxResults
-      );
-
-      // Generate response using retrieved context
-      const response = await this.generateResponse(request.question, relevantChunks);
+      console.log(`Processing query: ${request.question}`);
       
-      // Create sources from relevant chunks
-      const sources: QuerySource[] = relevantChunks.map(chunk => ({
-        documentId: chunk.documentId,
-        documentName: '', // Will be populated from chunk metadata
-        chunkId: chunk.id,
-        content: chunk.content,
-        relevanceScore: this.calculateRelevanceScore(request.question, chunk.content),
-        startIndex: chunk.startIndex,
-        endIndex: chunk.endIndex,
+      // Use LangChain RAG chain to process the query
+      const answer = await processQueryWithRAG(request.question);
+      
+      // Get similar documents for sources (optional)
+      const similarDocs = await searchSimilarDocuments(request.question, request.maxResults || AI_CONFIG.maxResults);
+      
+      // Create sources from similar documents
+      const sources: QuerySource[] = similarDocs.map((doc, index) => ({
+        documentId: doc.metadata.id || 'unknown',
+        documentName: doc.metadata.name || 'Unknown Document',
+        chunkId: `chunk_${index}`,
+        content: doc.pageContent,
+        relevanceScore: 0.8, // We'll calculate this properly later
+        startIndex: 0,
+        endIndex: doc.pageContent.length,
       }));
 
       const processingTime = Date.now() - startTime;
 
       return {
-        answer: response,
+        answer,
         sources: request.includeSources !== false ? sources : [],
-        confidence: this.calculateConfidence(response, sources),
+        confidence: this.calculateConfidence(answer, sources),
         processingTime,
         queryId,
       };
     } catch (error) {
+      console.error('Query processing error:', error);
+      
       throw new AIQueryError(
         `Failed to process query: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        queryId
+        'QUERY_ERROR'
       );
     }
   }
 
   /**
-   * Finds relevant chunks based on query embedding
+   * Health check for the AI service
    */
-  private async findRelevantChunks(
-    queryEmbedding: number[],
-    documentIds?: string[],
-    maxResults: number = AI_CONFIG.maxResults
-  ): Promise<DocumentChunk[]> {
-    try {
-      // Import database service dynamically
-      const { db } = await import('./database');
-      
-      // Find similar chunks using vector similarity
-      const relevantChunks = await db.findSimilarChunks(
-        queryEmbedding,
-        documentIds,
-        maxResults
-      );
-      
-      return relevantChunks;
-    } catch (error) {
-      console.error('Error finding relevant chunks:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Generates AI response using retrieved context
-   */
-  private async generateResponse(question: string, chunks: DocumentChunk[]): Promise<string> {
-    const context = chunks
-      .map(chunk => chunk.content)
-      .join('\n\n');
-
-    const prompt = `
-You are an intelligent document assistant. Answer the user's question based on the provided context from their documents.
-
-Context:
-${context}
-
-Question: ${question}
-
-Instructions:
-- Answer based only on the provided context
-- If the context doesn't contain enough information, say so
-- Be concise but comprehensive
-- Cite specific parts of the documents when relevant
-- If you're unsure about something, express that uncertainty
-
-Answer:`;
-
-    try {
-      const response = await retryWithBackoff(async () => {
-        const result = await this.model.invoke(prompt);
-        return result.content as string;
-      }, AI_CONFIG.maxRetries);
-
-      return response.trim();
-    } catch (error) {
-      throw new AIQueryError(
-        `Failed to generate response: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        'unknown'
-      );
-    }
-  }
-
-  /**
-   * Extracts section information from chunk content
-   */
-  private extractSection(content: string): string {
-    const lines = content.split('\n');
-    for (const line of lines) {
-      if (line.match(/^#{1,6}\s/)) {
-        return line.replace(/^#{1,6}\s/, '').trim();
-      }
-    }
-    return 'General';
-  }
-
-  /**
-   * Extracts heading from chunk content
-   */
-  private extractHeading(content: string): string {
-    const lines = content.split('\n');
-    for (const line of lines) {
-      if (line.match(/^#{1,6}\s/) || line.match(/^[A-Z][^.!?]*$/)) {
-        return line.replace(/^#{1,6}\s/, '').trim();
-      }
-    }
-    return '';
-  }
-
-  /**
-   * Calculates importance score for chunk content
-   */
-  private calculateImportance(content: string): number {
-    const wordCount = content.split(/\s+/).length;
-    const hasNumbers = /\d/.test(content);
-    const hasCapitalizedWords = /[A-Z][a-z]+/.test(content);
-    const hasSpecialTerms = /(important|key|main|primary|critical)/i.test(content);
-    
-    let score = 0.5; // Base score
-    
-    if (wordCount > 50) score += 0.1;
-    if (hasNumbers) score += 0.1;
-    if (hasCapitalizedWords) score += 0.1;
-    if (hasSpecialTerms) score += 0.2;
-    
-    return Math.min(score, 1.0);
-  }
-
-  /**
-   * Extracts keywords from content
-   */
-  private extractKeywords(content: string): string[] {
-    const words = content
-      .toLowerCase()
-      .replace(/[^\w\s]/g, '')
-      .split(/\s+/)
-      .filter(word => word.length > 3);
-    
-    const wordCount: Record<string, number> = {};
-    words.forEach(word => {
-      wordCount[word] = (wordCount[word] || 0) + 1;
-    });
-    
-    return Object.entries(wordCount)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 10)
-      .map(([word]) => word);
-  }
-
-  /**
-   * Calculates relevance score between query and content
-   */
-  private calculateRelevanceScore(query: string, content: string): number {
-    return calculateSimilarity(query.toLowerCase(), content.toLowerCase());
-  }
-
-  /**
-   * Calculates confidence score for the response
-   */
-  private calculateConfidence(response: string, sources: QuerySource[]): number {
-    let confidence = 0.5; // Base confidence
-    
-    // Increase confidence based on source relevance
-    if (sources.length > 0) {
-      const avgRelevance = sources.reduce((sum, source) => sum + source.relevanceScore, 0) / sources.length;
-      confidence += avgRelevance * 0.3;
-    }
-    
-    // Increase confidence if response is substantial
-    if (response.length > 100) {
-      confidence += 0.1;
-    }
-    
-    // Decrease confidence if response contains uncertainty indicators
-    if (/\b(unsure|uncertain|might|could|possibly)\b/i.test(response)) {
-      confidence -= 0.1;
-    }
-    
-    return Math.max(0, Math.min(confidence, 1.0));
-  }
-
-  /**
-   * Health check for AI services
-   */
-  async healthCheck(): Promise<{ status: 'healthy' | 'unhealthy'; responseTime: number; error?: string }> {
+  async healthCheck(): Promise<{ status: string; responseTime: number; error?: string }> {
     const startTime = Date.now();
     
     try {
-      await this.model.invoke('Test connection');
-      const responseTime = Date.now() - startTime;
+      if (!this.isInitialized) {
+        return {
+          status: 'unhealthy',
+          responseTime: Date.now() - startTime,
+          error: 'AI service not initialized',
+        };
+      }
+
+      // Test Supabase connection
+      const isConnected = await testSupabaseConnection();
       
+      if (!isConnected) {
+        return {
+          status: 'unhealthy',
+          responseTime: Date.now() - startTime,
+          error: 'Supabase connection failed',
+        };
+      }
+
       return {
         status: 'healthy',
-        responseTime,
+        responseTime: Date.now() - startTime,
       };
     } catch (error) {
-      const responseTime = Date.now() - startTime;
-      
       return {
         status: 'unhealthy',
-        responseTime,
+        responseTime: Date.now() - startTime,
         error: error instanceof Error ? error.message : 'Unknown error',
       };
     }
   }
+
+  /**
+   * Calculate confidence score based on answer and sources
+   */
+  private calculateConfidence(answer: string, sources: QuerySource[]): number {
+    // Simple confidence calculation
+    // In a real implementation, you might use more sophisticated methods
+    if (sources.length === 0) return 0.3;
+    if (answer.toLowerCase().includes("don't know") || answer.toLowerCase().includes("not enough information")) {
+      return 0.2;
+    }
+    return Math.min(0.9, 0.5 + (sources.length * 0.1));
+  }
 }
 
 // Export singleton instance
-export const aiService = new AIService();
+let aiService: AIService;
+try {
+  console.log('Creating AI service instance...');
+  aiService = new AIService();
+  console.log('AI service instance created successfully');
+} catch (error) {
+  console.error('Failed to create AI service instance:', error);
+  // Create a mock service for development
+  aiService = {
+    processDocument: async () => {
+      throw new Error('AI service not available');
+    },
+    processQuery: async () => {
+      throw new Error('AI service not available');
+    },
+    healthCheck: async () => ({
+      status: 'unhealthy',
+      responseTime: 0,
+      error: 'AI service initialization failed'
+    })
+  } as any;
+}
+
+export { aiService };
