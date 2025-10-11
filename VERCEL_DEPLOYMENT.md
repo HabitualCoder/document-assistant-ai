@@ -38,7 +38,7 @@ In your Vercel dashboard, add these environment variables:
 
 ```env
 # Database
-DATABASE_URL=postgresql://postgres:[YOUR-PASSWORD]@db.[YOUR-PROJECT-REF].supabase.co:5432/postgres
+DATABASE_URL=postgres://postgres.[YOUR-PROJECT-REF]:[YOUR-PASSWORD]@aws-0-us-east-1.pooler.supabase.com:5432/postgres
 
 # Supabase
 SUPABASE_URL=https://[YOUR-PROJECT-REF].supabase.co

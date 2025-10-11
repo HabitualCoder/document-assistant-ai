@@ -142,8 +142,8 @@ document-assistant-ai/
    Edit `.env.local` and add your API keys:
    ```env
    GOOGLE_API_KEY=your_google_api_key_here
-   DATABASE_URL="file:./dev.db"
-   SUPABASE_URL=your_supabase_url
+   DATABASE_URL="postgres://postgres.[YOUR-PROJECT-REF]:[YOUR-PASSWORD]@aws-0-us-east-1.pooler.supabase.com:5432/postgres"
+   SUPABASE_URL=https://[YOUR-PROJECT-REF].supabase.co
    SUPABASE_ANON_KEY=your_supabase_anon_key
    SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
    LANGCHAIN_TRACING_V2=true
@@ -153,8 +153,9 @@ document-assistant-ai/
 
 4. **Set up Supabase**
    - Create a new Supabase project at [supabase.com](https://supabase.com)
+   - Go to **Settings** → **Database** → **Connect**
+   - Copy the **Supavisor Session pooler** connection string
    - Run the SQL script in `supabase-setup.sql` to create the vector store
-   - Copy your project URL and API keys to `.env.local`
 
 5. **Set up LangSmith (Optional)**
    - Create a LangSmith account at [smith.langchain.com](https://smith.langchain.com)
@@ -292,7 +293,7 @@ npm start
 | Variable | Description | Required | Example |
 |----------|-------------|----------|---------|
 | `GOOGLE_API_KEY` | Google AI API key | Yes | `AIzaSy...` |
-| `DATABASE_URL` | Database connection string | Yes | `file:./dev.db` |
+| `DATABASE_URL` | Supabase PostgreSQL connection string (pooler) | Yes | `postgres://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-us-east-1.pooler.supabase.com:5432/postgres` |
 | `SUPABASE_URL` | Supabase project URL | Yes | `https://xxx.supabase.co` |
 | `SUPABASE_ANON_KEY` | Supabase anonymous key | Yes | `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...` |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key | Yes | `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...` |
