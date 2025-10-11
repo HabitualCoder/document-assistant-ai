@@ -39,7 +39,7 @@ export const API_ENDPOINTS = {
 } as const;
 
 export const UI_MESSAGES = {
-  UPLOAD_SUCCESS: 'File uploaded successfully! Processing...',
+  UPLOAD_SUCCESS: 'File uploaded successfully!',
   UPLOAD_ERROR: 'Upload failed. Please try again.',
   PROCESSING_SUCCESS: 'Document processed successfully!',
   PROCESSING_ERROR: 'Document processing failed.',

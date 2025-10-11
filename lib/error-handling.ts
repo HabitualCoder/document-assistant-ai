@@ -289,3 +289,16 @@ export async function safeAsync<T>(
     return fallback;
   }
 }
+
+// Additional error classes for AI services
+export class AIQueryError extends AppError {
+  constructor(message: string, code: string = 'AI_QUERY_ERROR', details?: Record<string, unknown>) {
+    super(message, code, 500, true, details);
+  }
+}
+
+export class DocumentProcessingError extends AppError {
+  constructor(message: string, documentId: string, details?: Record<string, unknown>) {
+    super(message, 'DOCUMENT_PROCESSING_ERROR', 500, true, { documentId, ...details });
+  }
+}

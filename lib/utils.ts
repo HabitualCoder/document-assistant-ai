@@ -88,14 +88,37 @@ export function sanitizeFilename(filename: string): string {
 /**
  * Formats date in a user-friendly format
  */
-export function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
+export function formatDate(date: Date | string | null | undefined): string {
+  try {
+    // Handle null/undefined
+    if (!date) {
+      return 'No date';
+    }
+    
+    // Convert string to Date if needed
+    let dateObj: Date;
+    if (typeof date === 'string') {
+      dateObj = new Date(date);
+    } else {
+      dateObj = date;
+    }
+    
+    // Check if date is valid
+    if (isNaN(dateObj.getTime())) {
+      return 'Invalid date';
+    }
+    
+    return new Intl.DateTimeFormat('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(dateObj);
+  } catch (error) {
+    console.error('Date formatting error:', error);
+    return 'Invalid date';
+  }
 }
 
 /**
