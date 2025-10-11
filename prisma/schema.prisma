@@ -6,11 +6,12 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
-// Document model for storing uploaded documents
+// Document model for storing uploaded documents metadata
 model Document {
   id            String   @id @default(cuid())
   name          String
@@ -26,7 +27,7 @@ model Document {
   chunks        DocumentChunk[]
   queries       Query[]
   
-  @@map("documents")
+  @@map("document_metadata")
 }
 
 // Document chunks for RAG (Retrieval-Augmented Generation)
@@ -45,7 +46,7 @@ model DocumentChunk {
   document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   querySources QuerySource[]
   
-  @@map("document_chunks")
+  @@map("document_chunks_metadata")
 }
 
 // Query model for storing user queries
@@ -63,7 +64,7 @@ model Query {
   documentId    String?
   sources       QuerySource[]
   
-  @@map("queries")
+  @@map("query_metadata")
 }
 
 // Query sources for tracking which chunks were used
@@ -78,7 +79,7 @@ model QuerySource {
   query           Query          @relation(fields: [queryId], references: [id], onDelete: Cascade)
   chunk           DocumentChunk  @relation(fields: [chunkId], references: [id], onDelete: Cascade)
   
-  @@map("query_sources")
+  @@map("query_sources_metadata")
 }
 
 // User sessions for tracking usage (optional)
@@ -88,5 +89,5 @@ model UserSession {
   createdAt DateTime @default(now())
   lastActive DateTime @default(now())
   
-  @@map("user_sessions")
+  @@map("user_sessions_metadata")
 }
