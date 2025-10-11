@@ -57,7 +57,7 @@ This project is created for **educational and portfolio purposes** to demonstrat
 - **LangChain.js** for AI functionality and RAG pipeline
 - **Google Gemini** models (gemini-2.0-flash-exp, gemini-embedding-001)
 - **Supabase** with pgvector extension for vector storage
-- **Prisma ORM** with SQLite database for metadata
+- **Prisma ORM** with Supabase PostgreSQL for metadata
 - **Zod** for validation
 
 ### **AI & ML**
@@ -321,9 +321,9 @@ npm start
    - Context window management for optimal response generation
 
 ### **Database Schema**
-- **SQLite (Prisma)**: Documents, DocumentChunks, Queries, QuerySources for metadata
+- **Supabase PostgreSQL**: Documents, DocumentChunks, Queries, QuerySources for metadata
 - **Supabase Vector Store**: Document embeddings and vector similarity search
-- **Hybrid Architecture**: Metadata in SQLite, vectors in Supabase for optimal performance
+- **Unified Architecture**: All data in Supabase for optimal performance and scalability
 
 ### **Error Handling & Resilience**
 - Exponential backoff retry logic
@@ -382,7 +382,7 @@ npm start
 ### **Full-Stack Development**
 - ✅ Type-safe API development with TypeScript
 - ✅ Modern React patterns with hooks and context
-- ✅ Hybrid database architecture (SQLite + Supabase)
+- ✅ Unified Supabase architecture (PostgreSQL + Vector Store)
 - ✅ File processing with robust PDF parsing (pdf2json)
 - ✅ Error handling with React ErrorBoundary
 - ✅ Real-time UI updates and progress indicators
