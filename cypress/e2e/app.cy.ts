@@ -52,6 +52,27 @@ describe('Intelligent Document Assistant', () => {
       // The file should be selected (this would trigger upload in real scenario)
       cy.get('input[type="file"]').should('have.value', `C:\\fakepath\\${fileName}`)
     })
+
+    it('should show upload progress indicator', () => {
+      // Mock a slow upload response
+      cy.intercept('POST', '/api/upload', {
+        delay: 2000,
+        statusCode: 200,
+        body: { success: true }
+      }).as('slowUpload')
+
+      const fileName = 'test-document.txt'
+      const fileContent = 'This is a test document content.'
+      
+      cy.get('input[type="file"]').selectFile({
+        contents: Cypress.Buffer.from(fileContent),
+        fileName: fileName,
+        mimeType: 'text/plain'
+      }, { force: true })
+
+      // Should show upload progress
+      cy.contains('Uploading file...').should('be.visible')
+    })
   })
 
   describe('Document Management', () => {
@@ -104,6 +125,71 @@ describe('Intelligent Document Assistant', () => {
       cy.get('textarea').type('Test query')
       cy.contains('/1000 characters').should('be.visible')
     })
+
+    it('should show typing indicator when processing query', () => {
+      // Mock a slow query response
+      cy.intercept('POST', '/api/query', {
+        delay: 2000,
+        statusCode: 200,
+        body: {
+          success: true,
+          data: {
+            answer: 'This is a test answer',
+            sources: [],
+            confidence: 0.95,
+            processingTime: 2000,
+            queryId: 'test-query-123'
+          }
+        }
+      }).as('slowQuery')
+
+      cy.contains('Ask Questions').click()
+      
+      cy.get('textarea').type('What is this about?')
+      cy.get('button[type="submit"]').click()
+
+      // Should show typing indicator
+      cy.contains('AI is thinking').should('be.visible')
+    })
+
+    it('should display chat messages after query', () => {
+      // Mock successful query response
+      cy.intercept('POST', '/api/query', {
+        statusCode: 200,
+        body: {
+          success: true,
+          data: {
+            answer: 'This is a comprehensive answer about the document.',
+            sources: [
+              {
+                documentId: 'doc1',
+                documentName: 'Test Document.pdf',
+                chunkId: 'chunk1',
+                content: 'Source content',
+                relevanceScore: 0.95,
+                startIndex: 0,
+                endIndex: 20
+              }
+            ],
+            confidence: 0.92,
+            processingTime: 1500,
+            queryId: 'test-query-123'
+          }
+        }
+      }).as('queryResponse')
+
+      cy.contains('Ask Questions').click()
+      
+      cy.get('textarea').type('What is this about?')
+      cy.get('button[type="submit"]').click()
+
+      cy.wait('@queryResponse')
+
+      // Should show the answer in chat
+      cy.contains('This is a comprehensive answer about the document.').should('be.visible')
+      cy.contains('Sources').should('be.visible')
+      cy.contains('Test Document.pdf').should('be.visible')
+    })
   })
 
   describe('Responsive Design', () => {
@@ -128,7 +214,7 @@ describe('Intelligent Document Assistant', () => {
 
   describe('Error Handling', () => {
     it('should handle invalid file types gracefully', () => {
-      // This would require mocking the API response
+      // Mock API error response
       cy.intercept('POST', '/api/upload', {
         statusCode: 400,
         body: {
@@ -149,8 +235,66 @@ describe('Intelligent Document Assistant', () => {
         mimeType: 'image/jpeg'
       }, { force: true })
 
-      // The error should be handled gracefully
-      // (In a real implementation, this would show an error message)
+      // Should show error message
+      cy.contains('File type not supported').should('be.visible')
+    })
+
+    it('should handle query errors gracefully', () => {
+      // Mock query error response
+      cy.intercept('POST', '/api/query', {
+        statusCode: 500,
+        body: {
+          success: false,
+          error: {
+            code: 'QUERY_ERROR',
+            message: 'Failed to process query'
+          }
+        }
+      }).as('queryError')
+
+      cy.contains('Ask Questions').click()
+      
+      cy.get('textarea').type('What is this about?')
+      cy.get('button[type="submit"]').click()
+
+      cy.wait('@queryError')
+
+      // Should show error message
+      cy.contains('Failed to process query').should('be.visible')
+    })
+
+    it('should handle network errors gracefully', () => {
+      // Mock network error
+      cy.intercept('POST', '/api/upload', {
+        forceNetworkError: true
+      }).as('networkError')
+
+      cy.contains('Upload Documents').click()
+      
+      cy.get('input[type="file"]').selectFile({
+        contents: Cypress.Buffer.from('test content'),
+        fileName: 'test.txt',
+        mimeType: 'text/plain'
+      }, { force: true })
+
+      // Should show network error message
+      cy.contains('Network error').should('be.visible')
+    })
+
+    it('should prevent page reload on JavaScript errors', () => {
+      // Inject a JavaScript error
+      cy.window().then((win) => {
+        win.addEventListener('error', (e) => {
+          e.preventDefault()
+        })
+        
+        // Trigger an error
+        win.eval('throw new Error("Test error")')
+      })
+
+      // Page should not reload
+      cy.url().should('not.include', 'about:blank')
+      cy.contains('Intelligent Document Assistant').should('be.visible')
     })
   })
 
@@ -189,7 +333,7 @@ describe('Intelligent Document Assistant', () => {
       })
     })
 
-    it('should have proper loading states', () => {
+    it('should have proper loading states for uploads', () => {
       // Mock a slow API response
       cy.intercept('POST', '/api/upload', {
         delay: 2000,
@@ -207,7 +351,55 @@ describe('Intelligent Document Assistant', () => {
       }, { force: true })
 
       // Should show loading state
-      cy.contains('Uploading...').should('be.visible')
+      cy.contains('Uploading file...').should('be.visible')
+    })
+
+    it('should have proper loading states for queries', () => {
+      // Mock a slow query response
+      cy.intercept('POST', '/api/query', {
+        delay: 2000,
+        statusCode: 200,
+        body: {
+          success: true,
+          data: {
+            answer: 'Test answer',
+            sources: [],
+            confidence: 0.95,
+            processingTime: 2000,
+            queryId: 'test-query'
+          }
+        }
+      }).as('slowQuery')
+
+      cy.contains('Ask Questions').click()
+      
+      cy.get('textarea').type('What is this about?')
+      cy.get('button[type="submit"]').click()
+
+      // Should show loading state
+      cy.contains('AI is thinking').should('be.visible')
+    })
+
+    it('should handle large files efficiently', () => {
+      // Create a larger file
+      const largeContent = 'x'.repeat(100000) // 100KB
+      
+      cy.intercept('POST', '/api/upload', {
+        delay: 1000,
+        statusCode: 200,
+        body: { success: true }
+      }).as('largeFileUpload')
+
+      cy.contains('Upload Documents').click()
+      
+      cy.get('input[type="file"]').selectFile({
+        contents: Cypress.Buffer.from(largeContent),
+        fileName: 'large-file.txt',
+        mimeType: 'text/plain'
+      }, { force: true })
+
+      // Should handle large file upload
+      cy.contains('Uploading file...').should('be.visible')
     })
   })
 })

@@ -7,12 +7,23 @@ import FileUpload from '../components/FileUpload'
 import LoadingSpinner from '../components/LoadingSpinner'
 import ErrorMessage from '../components/ErrorMessage'
 import SuccessMessage from '../components/SuccessMessage'
+import QueryInterface from '../components/QueryInterface'
+import DocumentList from '../components/DocumentList'
+import QueryResults from '../components/QueryResults'
+import ErrorBoundary from '../components/ErrorBoundary'
 
 // Mock the utils module
 jest.mock('../lib/utils', () => ({
   validateFileType: jest.fn(() => true),
   validateFileSize: jest.fn(() => true),
   formatFileSize: jest.fn(() => '1.0 KB'),
+  validateQuery: jest.fn(() => ({ isValid: true })),
+}))
+
+// Mock the types
+jest.mock('../lib/types', () => ({
+  DocumentType: ['pdf', 'txt', 'docx', 'md'],
+  DocumentStatus: ['uploading', 'processing', 'processed', 'error'],
 }))
 
 describe('Components', () => {
@@ -49,6 +60,18 @@ describe('Components', () => {
       
       expect(screen.getByText('Upload Tips:')).toBeInTheDocument()
       expect(screen.getByText(/PDF files work best/)).toBeInTheDocument()
+    })
+
+    test('shows upload progress when uploading', () => {
+      render(<FileUpload onFileUpload={mockOnFileUpload} isUploading={true} />)
+      
+      expect(screen.getByText('Uploading file...')).toBeInTheDocument()
+    })
+
+    test('does not show upload progress when not uploading', () => {
+      render(<FileUpload onFileUpload={mockOnFileUpload} isUploading={false} />)
+      
+      expect(screen.queryByText('Uploading file...')).not.toBeInTheDocument()
     })
   })
 
@@ -117,6 +140,147 @@ describe('Components', () => {
       fireEvent.click(dismissButton)
       
       expect(mockOnClose).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('QueryInterface', () => {
+    const mockOnQuery = jest.fn()
+    const mockQueryResponse = {
+      answer: 'This is a test answer',
+      sources: [
+        {
+          documentId: 'doc1',
+          documentName: 'Test Document',
+          chunkId: 'chunk1',
+          content: 'Test content',
+          relevanceScore: 0.9,
+          startIndex: 0,
+          endIndex: 10,
+        }
+      ],
+      confidence: 0.95,
+      processingTime: 1000,
+      queryId: 'query123',
+    }
+
+    beforeEach(() => {
+      mockOnQuery.mockClear()
+    })
+
+    test('renders query interface', () => {
+      render(
+        <QueryInterface
+          onQuery={mockOnQuery}
+          isLoading={false}
+          selectedDocuments={[]}
+          totalDocuments={0}
+          queryResponse={null}
+        />
+      )
+      
+      expect(screen.getByText('Ask a question about your documents')).toBeInTheDocument()
+      expect(screen.getByRole('textbox')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /ask question/i })).toBeInTheDocument()
+    })
+
+    test('shows example questions', () => {
+      render(
+        <QueryInterface
+          onQuery={mockOnQuery}
+          isLoading={false}
+          selectedDocuments={[]}
+          totalDocuments={0}
+          queryResponse={null}
+        />
+      )
+      
+      expect(screen.getByText('Example Questions')).toBeInTheDocument()
+      expect(screen.getByText('What is the main topic of this document?')).toBeInTheDocument()
+    })
+
+    test('handles query submission', async () => {
+      render(
+        <QueryInterface
+          onQuery={mockOnQuery}
+          isLoading={false}
+          selectedDocuments={[]}
+          totalDocuments={1}
+          queryResponse={null}
+        />
+      )
+      
+      const textarea = screen.getByRole('textbox')
+      const submitButton = screen.getByRole('button', { name: /ask question/i })
+      
+      fireEvent.change(textarea, { target: { value: 'What is this about?' } })
+      fireEvent.click(submitButton)
+      
+      await waitFor(() => {
+        expect(mockOnQuery).toHaveBeenCalledWith('What is this about?')
+      })
+    })
+
+    test('shows chat messages when query response is provided', () => {
+      render(
+        <QueryInterface
+          onQuery={mockOnQuery}
+          isLoading={false}
+          selectedDocuments={[]}
+          totalDocuments={1}
+          queryResponse={mockQueryResponse}
+        />
+      )
+      
+      expect(screen.getByText('This is a test answer')).toBeInTheDocument()
+    })
+
+    test('shows typing indicator when loading', () => {
+      render(
+        <QueryInterface
+          onQuery={mockOnQuery}
+          isLoading={true}
+          selectedDocuments={[]}
+          totalDocuments={1}
+          queryResponse={null}
+        />
+      )
+      
+      expect(screen.getByText('AI is thinking')).toBeInTheDocument()
+    })
+  })
+
+  describe('ErrorBoundary', () => {
+    const ThrowError = ({ shouldThrow }: { shouldThrow: boolean }) => {
+      if (shouldThrow) {
+        throw new Error('Test error')
+      }
+      return <div>No error</div>
+    }
+
+    test('renders children when no error', () => {
+      render(
+        <ErrorBoundary>
+          <ThrowError shouldThrow={false} />
+        </ErrorBoundary>
+      )
+      
+      expect(screen.getByText('No error')).toBeInTheDocument()
+    })
+
+    test('renders error UI when error occurs', () => {
+      // Suppress console.error for this test
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+      
+      render(
+        <ErrorBoundary>
+          <ThrowError shouldThrow={true} />
+        </ErrorBoundary>
+      )
+      
+      expect(screen.getByText('Something went wrong')).toBeInTheDocument()
+      expect(screen.getByText('Refresh Page')).toBeInTheDocument()
+      
+      consoleSpy.mockRestore()
     })
   })
 })
