@@ -76,6 +76,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Read file content
     const arrayBuffer = await file.arrayBuffer();
+    console.log('File processing:', {
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: documentType,
+      arrayBufferSize: arrayBuffer.byteLength
+    });
+    
     const content = await extractFileContent(arrayBuffer, documentType!);
 
     // Create document in database
@@ -94,6 +101,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Process document asynchronously
     processDocumentAsync(documentId).catch(error => {
       console.error('Document processing failed:', error);
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : undefined
+      });
       db.updateDocumentStatus(documentId, 'error');
     });
 
@@ -102,7 +114,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       data: {
         documentId,
         status: 'processing',
-        message: 'File uploaded successfully and is being processed',
+        message: 'File uploaded successfully',
       },
       timestamp: new Date(),
     };
@@ -136,19 +148,67 @@ async function extractFileContent(arrayBuffer: ArrayBuffer, type: string): Promi
     
     case 'pdf':
       try {
-        const pdfParse = require('pdf-parse');
-        const data = await pdfParse(Buffer.from(arrayBuffer));
+        // Use dynamic import to avoid module resolution issues
+        const pdfParse = (await import('pdf-parse')).default;
+        
+        // Convert ArrayBuffer to Buffer properly
+        const buffer = Buffer.from(arrayBuffer);
+        
+        console.log('PDF processing - buffer size:', buffer.length);
+        console.log('PDF processing - buffer first 10 bytes:', buffer.slice(0, 10));
+        
+        // Check if buffer looks like a PDF (starts with %PDF)
+        const header = buffer.slice(0, 4).toString();
+        if (header !== '%PDF') {
+          throw new Error('File does not appear to be a valid PDF');
+        }
+        
+        // Parse the PDF with minimal options
+        const data = await pdfParse(buffer, {
+          max: 0, // No page limit
+          version: 'v1.10.100'
+        });
+        
+        console.log('PDF parsing result:', {
+          textLength: data.text?.length || 0,
+          pages: data.numpages,
+          hasText: !!data.text
+        });
+        
+        if (!data.text || data.text.trim().length === 0) {
+          console.log('PDF has no extractable text');
+          throw new Error('No extractable text found in PDF');
+        }
+        
         return data.text;
       } catch (error) {
+        console.error('PDF parsing error:', error);
+        console.error('Error details:', {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined
+        });
+        
+        // If pdf-parse fails, try a fallback approach
+        if (error instanceof Error && error.message.includes('ENOENT')) {
+          console.log('Attempting fallback PDF processing...');
+          try {
+            // Simple fallback: return a message indicating PDF was uploaded but couldn't be processed
+            return `[PDF Document - Content extraction failed. Please try with a different PDF or contact support.]`;
+          } catch (fallbackError) {
+            console.error('Fallback also failed:', fallbackError);
+          }
+        }
+        
         throw new ValidationError(`Failed to extract PDF content: ${error instanceof Error ? error.message : 'Unknown error'}`, 'content');
       }
     
     case 'docx':
       try {
-        const mammoth = require('mammoth');
+        const mammoth = (await import('mammoth')).default;
         const result = await mammoth.extractRawText({ buffer: Buffer.from(arrayBuffer) });
         return result.value;
       } catch (error) {
+        console.error('DOCX parsing error:', error);
         throw new ValidationError(`Failed to extract DOCX content: ${error instanceof Error ? error.message : 'Unknown error'}`, 'content');
       }
     
@@ -163,27 +223,40 @@ async function extractFileContent(arrayBuffer: ArrayBuffer, type: string): Promi
  */
 async function processDocumentAsync(documentId: string): Promise<void> {
   try {
+    console.log(`Starting document processing for: ${documentId}`);
+    
     // Get document from database
     const document = await db.getDocument(documentId);
     if (!document) {
       throw new Error('Document not found');
     }
 
+    console.log(`Document found: ${document.name}, content length: ${document.content?.length || 0}`);
+
     // Import AI service dynamically to avoid circular dependencies
     const { aiService } = await import('@/lib/ai-services');
+    console.log('AI service imported successfully');
     
     // Process document with AI service (chunking + embeddings)
+    console.log('Starting AI processing...');
     const chunks = await aiService.processDocument(document);
+    console.log(`AI processing completed, created ${chunks.length} chunks`);
     
     // Store chunks in database
+    console.log('Storing chunks in database...');
     await db.createDocumentChunks(documentId, chunks);
+    console.log('Chunks stored successfully');
     
     // Update status to processed
     await db.updateDocumentStatus(documentId, 'processed');
-    
     console.log(`Document ${documentId} processed successfully with ${chunks.length} chunks`);
   } catch (error) {
     console.error(`Document processing failed for ${documentId}:`, error);
+    console.error('Error details:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      name: error instanceof Error ? error.name : undefined
+    });
     await db.updateDocumentStatus(documentId, 'error');
   }
 }

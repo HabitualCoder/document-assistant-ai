@@ -11,9 +11,9 @@ import FileUpload from '@/components/FileUpload';
 import DocumentList from '@/components/DocumentList';
 import QueryInterface from '@/components/QueryInterface';
 import QueryResults from '@/components/QueryResults';
-import LoadingSpinner from '@/components/LoadingSpinner';
 import ErrorMessage from '@/components/ErrorMessage';
 import SuccessMessage from '@/components/SuccessMessage';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 export default function DocumentAssistantClient(): JSX.Element {
   // State management
@@ -22,10 +22,44 @@ export default function DocumentAssistantClient(): JSX.Element {
   const [queryResponse, setQueryResponse] = useState<QueryResponse | null>(null);
   const [uiState, setUIState] = useState<UIState>({ isLoading: false });
   const [activeTab, setActiveTab] = useState<'upload' | 'query' | 'documents'>('upload');
+  
+  // Refs
+  const resultsRef = useRef<HTMLDivElement>(null);
 
   // Load documents on component mount
   useEffect(() => {
     loadDocuments();
+  }, []);
+
+  // Global error handler to prevent page reloads
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      console.error('Global error caught:', event.error);
+      event.preventDefault(); // Prevent default error handling
+      setUIState(prev => ({
+        ...prev,
+        error: `Application error: ${event.error?.message || 'Unknown error'}`,
+        isLoading: false
+      }));
+    };
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      console.error('Unhandled promise rejection:', event.reason);
+      event.preventDefault(); // Prevent default error handling
+      setUIState(prev => ({
+        ...prev,
+        error: `Promise rejection: ${event.reason?.message || 'Unknown error'}`,
+        isLoading: false
+      }));
+    };
+
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
   }, []);
 
   // Load documents from API
@@ -60,16 +94,19 @@ export default function DocumentAssistantClient(): JSX.Element {
       const result = await response.json();
 
       if (result.success) {
-        setUIState({ 
-          isLoading: false, 
-          success: 'File uploaded successfully! Processing...' 
+        setUIState({
+          isLoading: false,
+          success: 'File uploaded successfully!'
         });
-        
+
         // Reload documents to show the new one
         await loadDocuments();
-        
+
         // Switch to documents tab to show progress
         setActiveTab('documents');
+
+        // Start polling for status updates
+        pollDocumentStatus(result.data.documentId);
       } else {
         throw new Error(result.error?.message || 'Upload failed');
       }
@@ -81,14 +118,55 @@ export default function DocumentAssistantClient(): JSX.Element {
     }
   }, []);
 
+  // Poll document status until processing is complete
+  const pollDocumentStatus = useCallback(async (documentId: string): Promise<void> => {
+    const maxAttempts = 30; // 30 attempts
+    const interval = 2000; // 2 seconds between attempts
+    
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, interval));
+      
+      try {
+        await loadDocuments();
+        
+        // Check if document is processed
+        const document = documents.find(doc => doc.id === documentId);
+        if (document && document.status === 'processed') {
+          setUIState(prev => ({
+            ...prev,
+            success: 'Document processed successfully! Ready for queries.'
+          }));
+          return;
+        } else if (document && document.status === 'error') {
+          setUIState(prev => ({
+            ...prev,
+            error: 'Document processing failed. Please try again.'
+          }));
+          return;
+        }
+      } catch (error) {
+        console.error('Error polling document status:', error);
+      }
+    }
+    
+    // Timeout
+    setUIState(prev => ({
+      ...prev,
+      error: 'Document processing is taking longer than expected. Please refresh the page.'
+    }));
+  }, [documents, loadDocuments]);
+
   // Query handler
   const handleQuery = useCallback(async (question: string): Promise<void> => {
     if (!question.trim()) return;
 
-    setUIState({ isLoading: true, error: undefined });
-    setQueryResponse(null);
-
     try {
+      setUIState({ isLoading: true, error: undefined });
+      setQueryResponse(null);
+
+      console.log('Client: Starting query with question:', question);
+      console.log('Client: Selected documents:', selectedDocuments);
+
       const response = await fetch('/api/query', {
         method: 'POST',
         headers: {
@@ -102,9 +180,13 @@ export default function DocumentAssistantClient(): JSX.Element {
         }),
       });
 
+      console.log('Client: Response status:', response.status);
+
       const result = await response.json();
+      console.log('Client: Response data:', result);
 
       if (result.success) {
+        console.log('Client: Setting query response:', result.data);
         setQueryResponse(result.data);
         setUIState({ isLoading: false });
         
@@ -113,9 +195,11 @@ export default function DocumentAssistantClient(): JSX.Element {
           resultsRef.current?.scrollIntoView({ behavior: 'smooth' });
         }, 100);
       } else {
+        console.error('Client: Query failed:', result.error);
         throw new Error(result.error?.message || 'Query failed');
       }
     } catch (error) {
+      console.error('Client: Query error:', error);
       setUIState({ 
         isLoading: false, 
         error: error instanceof Error ? error.message : 'Query failed' 
@@ -138,7 +222,8 @@ export default function DocumentAssistantClient(): JSX.Element {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+    <ErrorBoundary>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
       {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -208,18 +293,6 @@ export default function DocumentAssistantClient(): JSX.Element {
           />
         )}
 
-        {/* Loading Overlay - Sectional */}
-        {uiState.isLoading && (
-          <div className="absolute inset-0 bg-white bg-opacity-90 flex items-center justify-center z-10 rounded-lg">
-            <div className="bg-white rounded-lg p-4 flex items-center space-x-3 shadow-lg border">
-              <LoadingSpinner size="sm" />
-              <span className="text-gray-700 text-sm font-medium">
-                {activeTab === 'upload' ? 'Uploading...' : 'Processing...'}
-              </span>
-            </div>
-          </div>
-        )}
-
         {/* Tab Content */}
         <div className="space-y-8 relative">
           {activeTab === 'upload' && (
@@ -227,7 +300,7 @@ export default function DocumentAssistantClient(): JSX.Element {
               <h2 className="text-xl font-semibold text-gray-900 mb-6">
                 Upload Documents
               </h2>
-              <FileUpload onFileUpload={handleFileUpload} />
+              <FileUpload onFileUpload={handleFileUpload} isUploading={uiState.isLoading} />
             </div>
           )}
 
@@ -255,6 +328,7 @@ export default function DocumentAssistantClient(): JSX.Element {
                   isLoading={uiState.isLoading}
                   selectedDocuments={selectedDocuments}
                   totalDocuments={documents.length}
+                  queryResponse={queryResponse}
                 />
               </div>
 
@@ -277,6 +351,7 @@ export default function DocumentAssistantClient(): JSX.Element {
           </div>
         </div>
       </footer>
-    </div>
+      </div>
+    </ErrorBoundary>
   );
 }
