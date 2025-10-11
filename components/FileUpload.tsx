@@ -11,12 +11,13 @@ import { validateFileType, validateFileSize, formatFileSize } from '@/lib/utils'
 
 interface FileUploadProps {
   onFileUpload: (file: File) => Promise<void>;
+  isUploading?: boolean;
 }
 
 const ALLOWED_TYPES: DocumentType[] = ['pdf', 'txt', 'docx', 'md'];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
-export default function FileUpload({ onFileUpload }: FileUploadProps): JSX.Element {
+export default function FileUpload({ onFileUpload, isUploading = false }: FileUploadProps): JSX.Element {
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [uploadError, setUploadError] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -157,6 +158,23 @@ export default function FileUpload({ onFileUpload }: FileUploadProps): JSX.Eleme
             </div>
             <div className="ml-3">
               <p className="text-sm text-red-800">{uploadError}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upload Progress Indicator */}
+      {isUploading && (
+        <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-blue-800 font-medium">Uploading file...</p>
+              <div className="mt-2 w-full bg-blue-200 rounded-full h-1.5">
+                <div className="bg-blue-600 h-1.5 rounded-full animate-pulse" style={{ width: '60%' }}></div>
+              </div>
             </div>
           </div>
         </div>
