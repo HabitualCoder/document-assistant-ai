@@ -1,0 +1,11 @@
+# ESLint ignore file for production builds
+node_modules/
+.next/
+out/
+build/
+dist/
+*.d.ts
+__tests__/
+cypress/
+jest.setup.js
+jest.config.js

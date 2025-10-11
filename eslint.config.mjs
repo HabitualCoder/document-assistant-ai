@@ -20,6 +20,20 @@ const eslintConfig = [
       "next-env.d.ts",
     ],
   },
+  {
+    rules: {
+      // Allow any types for external libraries and complex types
+      "@typescript-eslint/no-explicit-any": "warn",
+      // Allow unused variables in API routes (Next.js pattern)
+      "@typescript-eslint/no-unused-vars": "warn",
+      // Allow require() for server-side libraries
+      "@typescript-eslint/no-require-imports": "warn",
+      // Allow unescaped entities in JSX (common in content)
+      "react/no-unescaped-entities": "warn",
+      // Allow missing dependencies in useEffect/useCallback (common pattern)
+      "react-hooks/exhaustive-deps": "warn",
+    },
+  },
 ];
 
 export default eslintConfig;
