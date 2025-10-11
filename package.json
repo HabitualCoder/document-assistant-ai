@@ -17,7 +17,7 @@
   ],
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
     "test": "jest",
@@ -25,7 +25,11 @@
     "test:coverage": "jest --coverage",
     "test:e2e": "cypress open",
     "test:e2e:headless": "cypress run",
-    "test:all": "npm run test && npm run test:e2e:headless"
+    "test:all": "npm run test && npm run test:e2e:headless",
+    "postinstall": "prisma generate",
+    "db:setup": "prisma generate && prisma migrate deploy",
+    "db:reset": "prisma generate && prisma db push --force-reset",
+    "db:migrate": "prisma migrate dev"
   },
   "dependencies": {
     "@langchain/community": "^0.3.57",
