@@ -148,8 +148,8 @@ async function extractFileContent(arrayBuffer: ArrayBuffer, type: string): Promi
     
     case 'pdf':
       try {
-        // Use dynamic import to avoid module resolution issues
-        const pdfParse = (await import('pdf-parse')).default;
+        // Use pdf2json for reliable PDF parsing
+        const PDFParser = require('pdf2json');
         
         // Convert ArrayBuffer to Buffer properly
         const buffer = Buffer.from(arrayBuffer);
@@ -163,41 +163,60 @@ async function extractFileContent(arrayBuffer: ArrayBuffer, type: string): Promi
           throw new Error('File does not appear to be a valid PDF');
         }
         
-        // Parse the PDF with minimal options
-        const data = await pdfParse(buffer, {
-          max: 0, // No page limit
-          version: 'v1.10.100'
+        // Create PDF parser instance
+        const pdfParser = new PDFParser();
+        
+        // Parse PDF and extract text
+        const pdfData = await new Promise((resolve, reject) => {
+          pdfParser.on('pdfParser_dataError', (errData: any) => {
+            reject(new Error(`PDF parsing error: ${errData.parserError}`));
+          });
+          
+          pdfParser.on('pdfParser_dataReady', (pdfData: any) => {
+            resolve(pdfData);
+          });
+          
+          // Parse the buffer
+          pdfParser.parseBuffer(buffer);
         });
+        
+        // Extract text from all pages
+        let fullText = '';
+        if (pdfData && (pdfData as any).Pages) {
+          (pdfData as any).Pages.forEach((page: any, pageIndex: number) => {
+            if (page.Texts) {
+              page.Texts.forEach((text: any) => {
+                if (text.R) {
+                  text.R.forEach((r: any) => {
+                    if (r.T) {
+                      fullText += decodeURIComponent(r.T) + ' ';
+                    }
+                  });
+                }
+              });
+            }
+            fullText += '\n';
+          });
+        }
         
         console.log('PDF parsing result:', {
-          textLength: data.text?.length || 0,
-          pages: data.numpages,
-          hasText: !!data.text
+          textLength: fullText.length,
+          pages: (pdfData as any).Pages?.length || 0,
+          hasText: fullText.trim().length > 0
         });
         
-        if (!data.text || data.text.trim().length === 0) {
+        if (!fullText || fullText.trim().length === 0) {
           console.log('PDF has no extractable text');
           throw new Error('No extractable text found in PDF');
         }
         
-        return data.text;
+        return fullText.trim();
       } catch (error) {
         console.error('PDF parsing error:', error);
         console.error('Error details:', {
           message: error instanceof Error ? error.message : 'Unknown error',
           stack: error instanceof Error ? error.stack : undefined
         });
-        
-        // If pdf-parse fails, try a fallback approach
-        if (error instanceof Error && error.message.includes('ENOENT')) {
-          console.log('Attempting fallback PDF processing...');
-          try {
-            // Simple fallback: return a message indicating PDF was uploaded but couldn't be processed
-            return `[PDF Document - Content extraction failed. Please try with a different PDF or contact support.]`;
-          } catch (fallbackError) {
-            console.error('Fallback also failed:', fallbackError);
-          }
-        }
         
         throw new ValidationError(`Failed to extract PDF content: ${error instanceof Error ? error.message : 'Unknown error'}`, 'content');
       }
